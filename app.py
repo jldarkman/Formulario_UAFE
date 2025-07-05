@@ -8,18 +8,19 @@ import dropbox
 # ---------- Configuración Dropbox ----------
 # En .streamlit/secrets.toml define:
 # [dropbox]
-# access_token = "TU_ACCESS_TOKEN"
+# access_token = "SL.U.TU_TOKEN_GENERADO"
 
-# Inicializa cliente de Dropbox
 dbx = dropbox.Dropbox(st.secrets["dropbox"]["access_token"])
 
-def upload_to_dropbox(buffer: BytesIO, filename: str) -> str:
-    buffer.seek(0)
-    dbx.files_upload(buffer.read(), f"/{filename}", mode=dropbox.files.WriteMode.overwrite)
-    link_metadata = dbx.sharing_create_shared_link_with_settings(f"/{filename}")
-    url = link_metadata.url
-    # Forzar descarga directa
-    return url.replace("?dl=0", "?dl=1")
+def upload_to_dropbox(data_bytes: bytes, filename: str) -> str:
+    dropbox_path = f"/{filename}"
+    try:
+        dbx.files_upload(data_bytes, dropbox_path, mode=dropbox.files.WriteMode.overwrite)
+        link_meta = dbx.sharing_create_shared_link_with_settings(dropbox_path)
+        return link_meta.url.replace("?dl=0", "?dl=1")
+    except dropbox.exceptions.ApiError as e:
+        st.error(f"❌ Error subiendo a Dropbox:\n{e}")
+        return None
 
 # Inicializamos en sesión las “tablas” en memoria
 for key in ("cabeceras", "clientes", "operaciones", "transacciones"):
@@ -34,9 +35,9 @@ st.set_page_config(
 )
 
 st.title('Generador de archivos UAFE')
-st.markdown('Completa los datos en cada sección y luego haz clic en _Guardar_ para registrar y subir a Dropbox')
+st.markdown('Completa los datos en cada sección y luego haz clic en _Guardar_ para registrar y subir archivos a Dropbox')
 
-# 1. SECCIÓN CABECERA
+# 1. SECCIÓN: CABECERA
 with st.expander('1. Cabecera', expanded=True):
     cdr = st.text_input('Código de Registro (CDR)', max_chars=5, key='cdr')
     pdr_date = st.date_input('Periodo de Reporte (PDR)', key='pdr_date')
@@ -52,7 +53,7 @@ with st.expander('1. Cabecera', expanded=True):
         registro = {'CDR': cdr, 'PDR': pdr, 'FRE': fre, 'USR': usr,
                     'CLI': cli, 'TRO': tro, 'TRA': tra}
         st.session_state.cabeceras.append(registro)
-        st.success(f"✅ Cabecera guardada. Total: {len(st.session_state.cabeceras)}")
+        st.success(f"✅ Cabecera guardada. Total en memoria: {len(st.session_state.cabeceras)}")
 
     if st.button('Exportar y Subir Cabeceras', key='exp_cab'):
         if not st.session_state.cabeceras:
@@ -63,15 +64,16 @@ with st.expander('1. Cabecera', expanded=True):
             filename = f'CABECERA_{cdr}_{pdr[:6]}.xlsx'
             buf = BytesIO()
             df.to_excel(buf, index=False)
-            buf.seek(0)
-            st.download_button("Descargar Cabeceras", buf, filename,
-                               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-            url = upload_to_dropbox(buf, filename)
-            st.info(f"Subido a Dropbox: {url}")
+            data = buf.getvalue()
+            st.download_button("Descargar Cabeceras", data, filename,
+                               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key='dl_cab')
+            url = upload_to_dropbox(data, filename)
+            if url:
+                st.success(f"Subido a Dropbox: {url}")
 
-# 2. SECCIÓN DETALLE CLIENTE
+# 2. SECCIÓN: DETALLE CLIENTE
 with st.expander('2. Detalle Cliente', expanded=False):
-    tid = st.selectbox('Tipo Identificación (TID)', ['Cédula','RUC','Pasaporte'], key='tid_cli')
+    tid = st.selectbox('Tipo Identificación (TID)', ['Cédula', 'RUC', 'Pasaporte'], key='tid_cli')
     ide = st.text_input('Identificación (IDE)', key='ide_cli')
     nrs = st.text_input('Nombres / Razón Social (NRS)', key='nrs_cli')
     nac = st.text_input('Nacionalidad (NAC)', key='nac_cli')
@@ -85,7 +87,7 @@ with st.expander('2. Detalle Cliente', expanded=False):
                     'DIR': dir_, 'CCC': ccc, 'AEC': aec, 'IMT': imt,
                     'CDR': cdr, 'PDR': pdr}
         st.session_state.clientes.append(registro)
-        st.success(f"✅ Cliente guardado. Total: {len(st.session_state.clientes)}")
+        st.success(f"✅ Cliente guardado. Total en memoria: {len(st.session_state.clientes)}")
 
     if st.button('Exportar y Subir Clientes', key='exp_cli'):
         if not st.session_state.clientes:
@@ -96,19 +98,20 @@ with st.expander('2. Detalle Cliente', expanded=False):
             filename = f'DETALLECLIENTE_{cdr}_{pdr[:6]}.xlsx'
             buf = BytesIO()
             df_cli.to_excel(buf, index=False)
-            buf.seek(0)
-            st.download_button("Descargar Clientes", buf, filename,
-                               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-            url = upload_to_dropbox(buf, filename)
-            st.info(f"Subido a Dropbox: {url}")
+            data = buf.getvalue()
+            st.download_button("Descargar Clientes", data, filename,
+                               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key='dl_cli')
+            url = upload_to_dropbox(data, filename)
+            if url:
+                st.success(f"Subido a Dropbox: {url}")
 
-# 3. SECCIÓN DETALLE OPERACIÓN
+# 3. SECCIÓN: DETALLE OPERACIÓN
 with st.expander('3. Detalle Operación', expanded=False):
     tid_op = st.selectbox('Tipo Identificación (TID)', ['Cédula','RUC','Pasaporte'], key='tid_op')
     ide_op = st.text_input('Identificación (IDE)', key='ide_op')
     nct = st.text_input('Número Operación/Contrato (NCT)', key='nct_op')
-    vto = st.number_input('Valor Operación', min_value=0.0, format='%.2f', key='vto_op')
-    fdo_date = st.date_input('Fecha Operación', key='fdo_op')
+    vto = st.number_input('Valor Total Operación (VTO)', min_value=0.0, format='%.2f', key='vto_op')
+    fdo_date = st.date_input('Fecha de Operación (FDO)', key='fdo_op')
     fdo = fdo_date.strftime('%Y%m%d')
 
     if st.button('Guardar Operación', key='save_op'):
@@ -116,7 +119,7 @@ with st.expander('3. Detalle Operación', expanded=False):
                     'VTO': vto, 'FDO': fdo,
                     'CDR': cdr, 'PDR': pdr}
         st.session_state.operaciones.append(registro)
-        st.success(f"✅ Operación guardada. Total: {len(st.session_state.operaciones)}")
+        st.success(f"✅ Operación guardada. Total en memoria: {len(st.session_state.operaciones)}")
 
     if st.button('Exportar y Subir Operaciones', key='exp_op'):
         if not st.session_state.operaciones:
@@ -127,18 +130,19 @@ with st.expander('3. Detalle Operación', expanded=False):
             filename = f'DETALLEOPERACION_{cdr}_{pdr[:6]}.xlsx'
             buf = BytesIO()
             df_op.to_excel(buf, index=False)
-            buf.seek(0)
-            st.download_button("Descargar Operaciones", buf, filename,
-                               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-            url = upload_to_dropbox(buf, filename)
-            st.info(f"Subido a Dropbox: {url}")
+            data = buf.getvalue()
+            st.download_button("Descargar Operaciones", data, filename,
+                               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key='dl_op')
+            url = upload_to_dropbox(data, filename)
+            if url:
+                st.success(f"Subido a Dropbox: {url}")
 
-# 4. SECCIÓN DETALLE TRANSACCIÓN
+# 4. SECCIÓN: DETALLE TRANSACCIÓN
 with st.expander('4. Detalle Transacción', expanded=False):
     tid_tr = st.selectbox('Tipo Identificación (TID)', ['Cédula','RUC','Pasaporte'], key='tid_tr')
     ide_tr = st.text_input('Identificación (IDE)', key='ide_tr')
     ctr = st.text_input('Código Transacción (CTR)', key='ctr_tr')
-    ftr_date = st.date_input('Fecha Transacción', key='ftr_tr')
+    ftr_date = st.date_input('Fecha Transacción (FTR)', key='ftr_tr')
     ftr = ftr_date.strftime('%Y%m%d')
 
     if st.button('Guardar Transacción', key='save_tr'):
@@ -146,7 +150,7 @@ with st.expander('4. Detalle Transacción', expanded=False):
                     'FTR': ftr,
                     'CDR': cdr, 'PDR': pdr}
         st.session_state.transacciones.append(registro)
-        st.success(f"✅ Transacción guardada. Total: {len(st.session_state.transacciones)}")
+        st.success(f"✅ Transacción guardada. Total en memoria: {len(st.session_state.transacciones)}")
 
     if st.button('Exportar y Subir Transacciones', key='exp_tr'):
         if not st.session_state.transacciones:
@@ -157,11 +161,12 @@ with st.expander('4. Detalle Transacción', expanded=False):
             filename = f'DETALLETRANSACCION_{cdr}_{pdr[:6]}.xlsx'
             buf = BytesIO()
             df_tr.to_excel(buf, index=False)
-            buf.seek(0)
-            st.download_button("Descargar Transacciones", buf, filename,
-                               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-            url = upload_to_dropbox(buf, filename)
-            st.info(f"Subido a Dropbox: {url}")
+            data = buf.getvalue()
+            st.download_button("Descargar Transacciones", data, filename,
+                               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key='dl_tr')
+            url = upload_to_dropbox(data, filename)
+            if url:
+                st.success(f"Subido a Dropbox: {url}")
 
 # 5. CIERRE MENSUAL y REPORTERÍA GENERAL
 st.markdown("---")
@@ -181,25 +186,29 @@ if st.button('Cerrar Mes', key='cierre_mes'):
             filename = f'{name}_{cdr}_{month}.xlsx'
             buf = BytesIO()
             df.to_excel(buf, index=False)
-            buf.seek(0)
-            st.download_button(f"Descargar {name}", buf, filename,
-                               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-            url = upload_to_dropbox(buf, filename)
-            st.info(f"Subido a Dropbox: {url}")
+            data = buf.getvalue()
+            st.download_button(f"Descargar {name}", data,
+                               filename,
+                               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                               key=f'dl_{name}')
+            url = upload_to_dropbox(data, filename)
+            if url:
+                st.success(f"Subido a Dropbox: {url}")
     # Consolidado general
-    all_buffer = BytesIO()
-    with pd.ExcelWriter(all_buffer, engine='openpyxl') as writer:
+    all_buf = BytesIO()
+    with pd.ExcelWriter(all_buf, engine='openpyxl') as writer:
         for name, records in sections.items():
             if records:
                 pd.DataFrame(records).to_excel(writer, sheet_name=name, index=False)
-    all_buffer.seek(0)
-    st.download_button(
-        label='Descargar reportería general',
-        data=all_buffer,
-        file_name='reporteria_general.xlsx',
-        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        key='download_general'
-    )
-    for state_key in ['cabeceras', 'clientes', 'operaciones', 'transacciones']:
-        st.session_state[state_key].clear()
+    all_data = all_buf.getvalue()
+    st.download_button('Descargar reportería general', all_data,
+                       'reporteria_general.xlsx',
+                       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                       key='dl_general')
+    url_all = upload_to_dropbox(all_data, 'reporteria_general.xlsx')
+    if url_all:
+        st.success(f"Subido a Dropbox: {url_all}")
+    # Limpieza de memoria
+    for state_key in sections.keys():
+        st.session_state[state_key.lower()].clear()
     st.success('✅ Cierre mensual completado.')
