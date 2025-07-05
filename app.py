@@ -166,13 +166,14 @@ if st.button('Cerrar Mes', key='cierre_mes'):
         'DETALLEOPERACION': st.session_state.operaciones,
         'DETALLETRANSACCION': st.session_state.transacciones
     }
-    # Generar y descargar mensuales
+    # Generar y descargar Excel mensuales
     for prefix, records in sections.items():
         df = pd.DataFrame(records)
         if 'PDR' in df.columns:
             df = df[df['PDR'].str[:6] == month]
-        download_excel(df, f'{prefix}_{cdr}_{month}.xlsx')
-    # Consolidado general
+        filename = f'{prefix}_{cdr}_{month}.xlsx'
+        download_excel(df, filename)
+    # Generar reportería general
     all_buffer = BytesIO()
     with pd.ExcelWriter(all_buffer, engine='openpyxl') as writer:
         for prefix, records in sections.items():
@@ -182,9 +183,10 @@ if st.button('Cerrar Mes', key='cierre_mes'):
         label='Descargar reportería general',
         data=all_buffer,
         file_name='reporteria_general.xlsx',
-        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        key='download_general'
     )
-    # Limpiar memoria
-    for key in sections.keys():
-        st.session_state[key].clear()
+    # Limpiar memoria para próximo mes
+    for state_key in ['cabeceras', 'clientes', 'operaciones', 'transacciones']:
+        st.session_state[state_key].clear()
     st.success('✅ Cierre mensual completado.')
